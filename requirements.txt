@@ -12,6 +12,7 @@ scipy>=1.11.0
 # Model utilities
 mamba-ssm>=1.2.0
 causal-conv1d>=1.1.0
+encodec>=0.1.1  # Meta's neural audio codec
 
 # Training
 accelerate>=0.25.0
