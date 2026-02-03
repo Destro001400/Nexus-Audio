@@ -1,0 +1,68 @@
+# SiMBA Therapeutic Music Model Configuration
+
+model:
+  name: "simba-therapy-v1"
+  d_model: 512          # Hidden dimension
+  n_layers: 8           # Number of Mamba blocks
+  d_state: 16           # SSM state dimension
+  d_conv: 4             # Local convolution width
+  expand: 2             # Block expansion factor
+  vocab_size: 4096      # Audio token vocabulary
+  max_seq_len: 8192     # Maximum sequence length
+
+audio:
+  sample_rate: 44100
+  n_mels: 128
+  n_fft: 2048
+  hop_length: 512
+  win_length: 2048
+  
+therapeutic:
+  # Bass enhancement for insulin release (ETH Zurich study)
+  bass_freq_min: 50     # Hz
+  bass_freq_max: 60     # Hz
+  bass_boost_db: 6      # dB boost
+  
+  # High-frequency components for glucose tolerance
+  hfc_freq_min: 16000   # Hz
+  hfc_freq_max: 22000   # Hz (limited by sample rate)
+  hfc_preserve: true
+  
+  # Binaural beats
+  binaural:
+    theta_hz: 6         # Relaxation
+    beta_hz: 22         # Anxiety reduction
+    base_freq: 200      # Carrier frequency
+
+training:
+  batch_size: 8
+  gradient_accumulation_steps: 4
+  learning_rate: 3.0e-4
+  warmup_steps: 1000
+  max_steps: 100000
+  fp16: true
+  gradient_checkpointing: true
+  
+  optimizer:
+    name: "adamw"
+    betas: [0.9, 0.95]
+    weight_decay: 0.1
+    
+  scheduler:
+    name: "cosine"
+    min_lr: 3.0e-5
+
+data:
+  train_path: "./data/train"
+  val_path: "./data/val"
+  chunk_length_sec: 10
+  augmentation:
+    pitch_shift: true
+    time_stretch: true
+    noise_injection: false
+
+logging:
+  project: "nexus-audio"
+  log_every_n_steps: 100
+  save_every_n_steps: 1000
+  eval_every_n_steps: 500
