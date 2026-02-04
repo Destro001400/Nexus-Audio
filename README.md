@@ -37,7 +37,7 @@ src/
 
 - [SiMBA Architecture](https://arxiv.org/abs/2403.15360)
 - [Mamba: Linear-Time Sequence Modeling](https://arxiv.org/abs/2312.00752)
-- [The Triple Convergence Hypothesis](./descoberta.md)
+- [The Triple Convergence Hypothesis](https://snax-page.vercel.app)
 
 ## 📊 Especificações
 
