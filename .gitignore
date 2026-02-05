@@ -1,0 +1,24 @@
+# User files
+research/
+*.rar
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+.venv/
+env/
+venv/
+.env
+
+# Jupyter Notebooks
+.ipynb_checkpoints
+*/.ipynb_checkpoints/*
+
+# Data & Models
+checkpoints/
+tokens/
+data/
+*.pt
+*.wav
+*.mp3
