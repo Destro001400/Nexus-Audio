@@ -1,11 +1,12 @@
 """
-Trainer for SiMBA Music Model
+Trainer para o Modelo SiMBA Music
+CORRIGIDO v2: bug do labels=None (loss zerada) corrigido
 
-Handles:
-- Training loop with mixed precision
+Funcionalidades:
+- Training loop com mixed precision
 - Gradient accumulation
 - Checkpointing
-- Logging to TensorBoard/W&B
+- Logging TensorBoard/W&B
 """
 
 import os
@@ -35,23 +36,16 @@ except ImportError:
 
 class Trainer:
     """
-    Trainer for SiMBA music generation model.
-    
-    Features:
-    - Mixed precision training (fp16/bf16)
-    - Gradient accumulation for large effective batch sizes
-    - Learning rate scheduling with warmup
-    - Checkpoint saving and resuming
-    - Logging to TensorBoard and W&B
-    
+    Trainer para o modelo SiMBA de geração musical.
+
     Args:
-        model: SiMBAMusic model
-        train_dataloader: Training data
-        val_dataloader: Validation data
-        config: Training configuration dict
-        output_dir: Directory for checkpoints and logs
+        model: SiMBATherapeutic ou SiMBAMusic
+        train_dataloader: Dados de treino
+        val_dataloader: Dados de validação (opcional)
+        config: Configurações de treino
+        output_dir: Diretório para checkpoints e logs
     """
-    
+
     def __init__(
         self,
         model: nn.Module,
@@ -65,8 +59,8 @@ class Trainer:
         self.val_dataloader = val_dataloader
         self.output_dir = Path(output_dir)
         self.output_dir.mkdir(parents=True, exist_ok=True)
-        
-        # Default config
+
+        # Config padrão
         self.config = {
             "batch_size": 8,
             "gradient_accumulation_steps": 4,
@@ -85,45 +79,35 @@ class Trainer:
         }
         if config:
             self.config.update(config)
-            
-        # Setup device
-        self.device = torch.device(
-            "cuda" if torch.cuda.is_available() else "cpu"
-        )
+
+        self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         self.model = self.model.to(self.device)
-        
-        # Setup optimizer
+
         self.optimizer = self._create_optimizer()
-        
-        # Setup scheduler
+
         self.scheduler = CosineAnnealingLR(
             self.optimizer,
             T_max=self.config["max_steps"] - self.config["warmup_steps"],
             eta_min=self.config["min_lr"],
         )
-        
-        # Setup mixed precision
+
         self.use_amp = self.config["fp16"] and torch.cuda.is_available()
         self.scaler = GradScaler() if self.use_amp else None
-        
-        # Gradient checkpointing
+
         if self.config["gradient_checkpointing"]:
             if hasattr(self.model, "gradient_checkpointing_enable"):
                 self.model.gradient_checkpointing_enable()
-                
-        # Logging
+
         self.logger = self._setup_logging()
-        
-        # State
+
         self.global_step = 0
         self.best_val_loss = float("inf")
-        
+
     def _create_optimizer(self) -> AdamW:
-        """Create AdamW optimizer with weight decay."""
-        # Separate weight decay for different parameter types
+        """Cria otimizador AdamW com weight decay seletivo."""
         decay_params = []
         no_decay_params = []
-        
+
         for name, param in self.model.named_parameters():
             if not param.requires_grad:
                 continue
@@ -131,27 +115,27 @@ class Trainer:
                 no_decay_params.append(param)
             else:
                 decay_params.append(param)
-                
+
         param_groups = [
             {"params": decay_params, "weight_decay": self.config["weight_decay"]},
             {"params": no_decay_params, "weight_decay": 0.0},
         ]
-        
+
         return AdamW(
             param_groups,
             lr=self.config["learning_rate"],
             betas=tuple(self.config["betas"]),
         )
-        
+
     def _setup_logging(self):
-        """Setup logging backend."""
+        """Configura backends de logging."""
         logger = {}
-        
+
         if TENSORBOARD_AVAILABLE:
             logger["tensorboard"] = SummaryWriter(
                 log_dir=self.output_dir / "tensorboard"
             )
-            
+
         if WANDB_AVAILABLE and os.environ.get("WANDB_API_KEY"):
             wandb.init(
                 project="nexus-audio",
@@ -159,183 +143,193 @@ class Trainer:
                 dir=str(self.output_dir),
             )
             logger["wandb"] = wandb
-            
+
         return logger
-        
+
     def _log(self, metrics: Dict[str, float], step: int):
-        """Log metrics to all backends."""
+        """Loga métricas em todos os backends."""
         if "tensorboard" in self.logger:
             for k, v in metrics.items():
                 self.logger["tensorboard"].add_scalar(k, v, step)
-                
+
         if "wandb" in self.logger:
             wandb.log(metrics, step=step)
-            
+
     def _warmup_lr(self, step: int) -> float:
-        """Calculate learning rate with warmup."""
+        """Calcula learning rate com warmup linear."""
         warmup_steps = self.config["warmup_steps"]
-        
         if step < warmup_steps:
             return self.config["learning_rate"] * step / warmup_steps
         else:
             return self.scheduler.get_last_lr()[0]
-            
+
+    def _prepare_batch(self, batch: Dict) -> Dict:
+        """
+        Prepara batch para forward pass.
+
+        CORRIGIDO: garante que labels sempre seja fornecido para calcular a loss.
+        Antes o Trainer passava labels=None, resultando em loss=0 silenciosamente.
+        """
+        if "tokens" in batch:
+            # Batch de tokens pré-computados (ex: do FastDataset do Kaggle)
+            tokens = batch["tokens"].to(self.device)
+            return {"tokens": tokens, "labels": tokens}  # self-supervised
+
+        elif "waveform" in batch:
+            # Batch de waveforms brutos
+            waveform = batch["waveform"].to(self.device)
+            return {"waveform": waveform}
+            # Nota: para waveform, o modelo precisa tokenizar internamente
+            # e então calcular a loss. Isso depende da impl. do modelo.
+
+        else:
+            raise ValueError(f"Batch deve conter 'tokens' ou 'waveform'. Keys: {batch.keys()}")
+
     def train(self):
-        """Main training loop."""
-        print(f"Starting training on {self.device}")
-        print(f"Model parameters: {self.model.count_parameters():,}")
-        print(f"Training steps: {self.config['max_steps']:,}")
-        
+        """Loop principal de treino."""
+        print(f"Iniciando treino em {self.device}")
+        print(f"Parâmetros do modelo: {self.model.count_parameters():,}")
+        print(f"Steps de treino: {self.config['max_steps']:,}")
+
         self.model.train()
         accumulation_steps = self.config["gradient_accumulation_steps"]
-        
-        # Create data iterator
+
         data_iter = iter(self.train_dataloader)
-        
-        # Progress bar
+
         pbar = tqdm(
             total=self.config["max_steps"],
-            desc="Training",
+            desc="Treinando",
             initial=self.global_step,
         )
-        
+
         accumulated_loss = 0.0
         start_time = time.time()
-        
+
         while self.global_step < self.config["max_steps"]:
-            # Get batch
             try:
                 batch = next(data_iter)
             except StopIteration:
                 data_iter = iter(self.train_dataloader)
                 batch = next(data_iter)
-                
-            # Move to device
-            waveform = batch["waveform"].to(self.device)
-            
-            # Forward pass with AMP
+
+            # CORRIGIDO: prepara batch com labels garantidos
+            prepared = self._prepare_batch(batch)
+
             with autocast(enabled=self.use_amp):
-                outputs = self.model(waveform=waveform, labels=None)
-                
-                # Self-supervised loss (reconstruction + next token)
-                # For now, use the internal loss calculation
+                outputs = self.model(**prepared)
                 loss = outputs.get("loss")
-                
+
+                # CORRIGIDO: agora loss nunca deve ser None se _prepare_batch
+                # funcionou corretamente. Mas mantemos a guarda por segurança.
                 if loss is None:
-                    # If no explicit loss, use dummy loss for testing
-                    logits = outputs["logits"]
-                    loss = torch.tensor(0.0, device=self.device)
-                    
+                    raise RuntimeError(
+                        "Model retornou loss=None. Verifique se labels foi fornecido. "
+                        "Isso indica um bug no forward() do modelo."
+                    )
+
                 loss = loss / accumulation_steps
-                
-            # Backward pass
+
             if self.use_amp:
                 self.scaler.scale(loss).backward()
             else:
                 loss.backward()
-                
+
             accumulated_loss += loss.item()
-            
-            # Update weights every accumulation_steps
+
             if (self.global_step + 1) % accumulation_steps == 0:
-                # Gradient clipping
                 if self.use_amp:
                     self.scaler.unscale_(self.optimizer)
-                    
+
                 torch.nn.utils.clip_grad_norm_(
                     self.model.parameters(),
                     self.config["max_grad_norm"],
                 )
-                
-                # Optimizer step
+
                 if self.use_amp:
                     self.scaler.step(self.optimizer)
                     self.scaler.update()
                 else:
                     self.optimizer.step()
-                    
-                self.optimizer.zero_grad()
-                
-                # LR scheduling
+
+                self.optimizer.zero_grad(set_to_none=True)  # Mais rápido!
+
                 if self.global_step >= self.config["warmup_steps"]:
                     self.scheduler.step()
                 else:
-                    # Manual warmup
                     lr = self._warmup_lr(self.global_step)
                     for param_group in self.optimizer.param_groups:
                         param_group["lr"] = lr
-                        
-            # Logging
+
             if (self.global_step + 1) % self.config["log_every_n_steps"] == 0:
                 avg_loss = accumulated_loss * accumulation_steps
                 elapsed = time.time() - start_time
                 steps_per_sec = self.config["log_every_n_steps"] / elapsed
-                
+
                 metrics = {
                     "train/loss": avg_loss,
                     "train/lr": self.optimizer.param_groups[0]["lr"],
                     "train/steps_per_sec": steps_per_sec,
                 }
                 self._log(metrics, self.global_step)
-                
+
                 pbar.set_postfix(
                     loss=f"{avg_loss:.4f}",
                     lr=f"{self.optimizer.param_groups[0]['lr']:.2e}",
+                    spm=f"{steps_per_sec * 60:.1f}",
                 )
-                
+
                 accumulated_loss = 0.0
                 start_time = time.time()
-                
-            # Evaluation
+
             if (
                 self.val_dataloader is not None
                 and (self.global_step + 1) % self.config["eval_every_n_steps"] == 0
             ):
                 val_loss = self.evaluate()
                 self._log({"val/loss": val_loss}, self.global_step)
-                
+
                 if val_loss < self.best_val_loss:
                     self.best_val_loss = val_loss
                     self.save_checkpoint("best")
-                    
+
                 self.model.train()
-                
-            # Save checkpoint
+
             if (self.global_step + 1) % self.config["save_every_n_steps"] == 0:
                 self.save_checkpoint(f"step_{self.global_step}")
-                
+
             self.global_step += 1
             pbar.update(1)
-            
+
         pbar.close()
         self.save_checkpoint("final")
-        print("Training complete!")
-        
+        print("Treino concluído!")
+
     @torch.no_grad()
     def evaluate(self) -> float:
-        """Evaluate on validation set."""
+        """Avalia no conjunto de validação."""
         self.model.eval()
-        
+
         total_loss = 0.0
         n_batches = 0
-        
-        for batch in tqdm(self.val_dataloader, desc="Evaluating"):
-            waveform = batch["waveform"].to(self.device)
-            
+
+        for batch in tqdm(self.val_dataloader, desc="Avaliando"):
+            prepared = self._prepare_batch(batch)
+
             with autocast(enabled=self.use_amp):
-                outputs = self.model(waveform=waveform)
-                loss = outputs.get("loss", torch.tensor(0.0))
-                
-            total_loss += loss.item()
+                outputs = self.model(**prepared)
+                loss = outputs.get("loss")
+                if loss is not None:
+                    total_loss += loss.item()
+
             n_batches += 1
-            
+
         return total_loss / max(n_batches, 1)
-    
+
     def save_checkpoint(self, name: str):
-        """Save model checkpoint."""
+        """Salva checkpoint do modelo."""
         checkpoint_dir = self.output_dir / "checkpoints"
         checkpoint_dir.mkdir(exist_ok=True)
-        
+
         checkpoint = {
             "model_state_dict": self.model.state_dict(),
             "optimizer_state_dict": self.optimizer.state_dict(),
@@ -344,19 +338,19 @@ class Trainer:
             "best_val_loss": self.best_val_loss,
             "config": self.config,
         }
-        
+
         path = checkpoint_dir / f"{name}.pt"
         torch.save(checkpoint, path)
-        print(f"Saved checkpoint: {path}")
-        
+        print(f"Checkpoint salvo: {path}")
+
     def load_checkpoint(self, path: str):
-        """Load model checkpoint."""
+        """Carrega checkpoint."""
         checkpoint = torch.load(path, map_location=self.device)
-        
+
         self.model.load_state_dict(checkpoint["model_state_dict"])
         self.optimizer.load_state_dict(checkpoint["optimizer_state_dict"])
         self.scheduler.load_state_dict(checkpoint["scheduler_state_dict"])
         self.global_step = checkpoint["global_step"]
         self.best_val_loss = checkpoint["best_val_loss"]
-        
-        print(f"Loaded checkpoint from step {self.global_step}")
+
+        print(f"Checkpoint carregado do step {self.global_step}")

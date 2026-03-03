@@ -1,18 +1,15 @@
 """
 EnCodec Wrapper for SiMBA
-
-Uses Meta's EnCodec for proper neural audio tokenization.
-EnCodec compresses audio ~40x while maintaining quality.
+CORRIGIDO v2: módulos de embedding movidos pro __init__ (bug crítico corrigido)
 
 Paper: "High Fidelity Neural Audio Compression" (Meta, 2022)
 """
 
 import torch
 import torch.nn as nn
-from typing import Tuple, Optional, Union
+from typing import Tuple, Optional
 import warnings
 
-# Try to import encodec, provide fallback
 try:
     from encodec import EncodecModel
     from encodec.utils import convert_audio
@@ -20,46 +17,44 @@ try:
 except ImportError:
     ENCODEC_AVAILABLE = False
     warnings.warn(
-        "EnCodec not installed. Install with: pip install encodec\n"
-        "Falling back to simplified tokenizer."
+        "EnCodec não instalado. Instale com: pip install encodec\n"
+        "Usando tokenizador simplificado como fallback."
     )
 
 
 class EnCodecWrapper(nn.Module):
     """
-    Wrapper around Meta's EnCodec for audio tokenization.
-    
-    EnCodec uses Residual Vector Quantization (RVQ) to create
-    discrete tokens from audio. Each codebook adds refinement.
-    
+    Wrapper do EnCodec da Meta para tokenização de áudio.
+
     Args:
-        model_type: "24k" (24kHz) or "48k" (48kHz)
-        bandwidth: Target bandwidth in kbps (1.5, 3.0, 6.0, 12.0, 24.0)
-        device: "cuda" or "cpu"
-        
-    Output Characteristics (24kHz, 6.0 kbps):
-        - ~75 tokens per second of audio
-        - 4 codebooks (can be configured)
-        - Vocab size: 1024 per codebook
+        model_type: "24k" (24kHz) ou "48k" (48kHz)
+        bandwidth: Bandwidth alvo em kbps (1.5, 3.0, 6.0, 12.0, 24.0)
+        d_model: Dimensão dos embeddings de saída
+        device: "cuda" ou "cpu"
+
+    Características com 24kHz e 6.0 kbps:
+        - ~75 tokens por segundo de áudio
+        - 8 codebooks
+        - Vocab size: 1024 por codebook
     """
-    
+
     def __init__(
         self,
         model_type: str = "24k",
         bandwidth: float = 6.0,
+        d_model: int = 512,
         device: str = "cuda" if torch.cuda.is_available() else "cpu",
     ):
         super().__init__()
-        
+
         self.device = device
         self.bandwidth = bandwidth
-        
+        self.d_model = d_model
+
         if not ENCODEC_AVAILABLE:
-            raise ImportError(
-                "EnCodec is required. Install with: pip install encodec"
-            )
-        
-        # Load pre-trained EnCodec model
+            raise ImportError("EnCodec é necessário. Instale com: pip install encodec")
+
+        # Carrega EnCodec pré-treinado
         if model_type == "24k":
             self.model = EncodecModel.encodec_model_24khz()
             self.sample_rate = 24000
@@ -67,24 +62,36 @@ class EnCodecWrapper(nn.Module):
             self.model = EncodecModel.encodec_model_48khz()
             self.sample_rate = 48000
         else:
-            raise ValueError(f"Unknown model type: {model_type}")
-        
+            raise ValueError(f"Tipo desconhecido: {model_type}")
+
         self.model.set_target_bandwidth(bandwidth)
         self.model.eval()
         self.model.to(device)
-        
-        # Freeze EnCodec parameters (we don't train it)
+
+        # Congela pesos do EnCodec (não treinamos ele)
         for param in self.model.parameters():
             param.requires_grad = False
-        
-        # Token characteristics
-        self.vocab_size = 1024  # EnCodec uses 1024 tokens per codebook
+
+        # Características dos tokens
+        self.vocab_size = 1024
         self.n_codebooks = self._get_n_codebooks()
         self.tokens_per_second = int(self.sample_rate / self.model.encoder.hop_length)
-        
+
+        # CORRIGIDO: módulos de embedding criados no __init__ (não mais lazy!)
+        # Antes eram criados dentro de tokens_to_embeddings() — bug crítico:
+        # módulos criados fora do __init__ não aparecem em parameters(),
+        # não salvam no checkpoint e não vão pro device correto.
+        self.token_embeddings = nn.ModuleList([
+            nn.Embedding(self.vocab_size, d_model // self.n_codebooks)
+            for _ in range(self.n_codebooks)
+        ])
+        self.embedding_proj = nn.Linear(
+            d_model // self.n_codebooks * self.n_codebooks,
+            d_model
+        )
+
     def _get_n_codebooks(self) -> int:
-        """Get number of codebooks based on bandwidth."""
-        # EnCodec bandwidth -> codebook mapping
+        """Número de codebooks baseado no bandwidth."""
         bandwidth_to_codebooks = {
             1.5: 2,
             3.0: 4,
@@ -93,7 +100,7 @@ class EnCodecWrapper(nn.Module):
             24.0: 32,
         }
         return bandwidth_to_codebooks.get(self.bandwidth, 8)
-    
+
     @torch.no_grad()
     def encode(
         self,
@@ -101,109 +108,86 @@ class EnCodecWrapper(nn.Module):
         sample_rate: Optional[int] = None,
     ) -> torch.Tensor:
         """
-        Encode audio waveform to discrete tokens.
-        
+        Codifica waveform para tokens discretos.
+
         Args:
-            waveform: Audio tensor (batch, channels, samples) or (batch, samples)
-            sample_rate: Input sample rate (resampled if different from model)
-            
+            waveform: (batch, channels, samples) ou (batch, samples)
+            sample_rate: Taxa de amostragem de entrada
+
         Returns:
-            tokens: Discrete tokens (batch, n_codebooks, n_frames)
+            tokens: (batch, n_codebooks, n_frames)
         """
-        # Ensure correct shape
         if waveform.dim() == 2:
-            waveform = waveform.unsqueeze(1)  # Add channel dim
-        
-        # Convert sample rate if needed
+            waveform = waveform.unsqueeze(1)
+
         if sample_rate is not None and sample_rate != self.sample_rate:
             waveform = convert_audio(
                 waveform, sample_rate, self.sample_rate, self.model.channels
             )
-        
+
         waveform = waveform.to(self.device)
-        
-        # Encode to tokens
+
         encoded_frames = self.model.encode(waveform)
-        
-        # Extract codes (list of (codes, scale) tuples)
         codes = encoded_frames[0][0]  # (batch, n_codebooks, n_frames)
-        
+
         return codes
-    
+
     @torch.no_grad()
     def decode(self, tokens: torch.Tensor) -> torch.Tensor:
         """
-        Decode discrete tokens back to audio waveform.
-        
-        Args:
-            tokens: Discrete tokens (batch, n_codebooks, n_frames)
-            
-        Returns:
-            waveform: Audio tensor (batch, channels, samples)
-        """
-        tokens = tokens.to(self.device)
-        
-        # Create encoded frames format expected by decoder
-        encoded_frames = [(tokens, None)]
-        
-        # Decode
-        waveform = self.model.decode(encoded_frames)
-        
-        return waveform
-    
-    def tokens_to_embeddings(self, tokens: torch.Tensor, d_model: int = 512) -> torch.Tensor:
-        """
-        Convert tokens to continuous embeddings for the model.
-        
-        Flattens multi-codebook tokens and projects to d_model.
-        
+        Decodifica tokens para waveform.
+
         Args:
             tokens: (batch, n_codebooks, n_frames)
-            d_model: Target embedding dimension
-            
+
+        Returns:
+            waveform: (batch, channels, samples)
+        """
+        tokens = tokens.to(self.device)
+        encoded_frames = [(tokens, None)]
+        waveform = self.model.decode(encoded_frames)
+        return waveform
+
+    def tokens_to_embeddings(self, tokens: torch.Tensor) -> torch.Tensor:
+        """
+        Converte tokens para embeddings contínuos.
+
+        CORRIGIDO: agora usa self.token_embeddings criado no __init__
+        em vez de criar módulos dinamicamente (que não treinavam!).
+
+        Args:
+            tokens: (batch, n_codebooks, n_frames)
+
         Returns:
             embeddings: (batch, n_frames, d_model)
         """
         batch, n_codebooks, n_frames = tokens.shape
-        
-        # Create embedding layers if not exists
-        if not hasattr(self, 'token_embeddings'):
-            self.token_embeddings = nn.ModuleList([
-                nn.Embedding(self.vocab_size, d_model // n_codebooks)
-                for _ in range(n_codebooks)
-            ]).to(self.device)
-            
-            self.embedding_proj = nn.Linear(
-                d_model // n_codebooks * n_codebooks, d_model
-            ).to(self.device)
-        
-        # Embed each codebook
+
         embeddings = []
         for i in range(n_codebooks):
             emb = self.token_embeddings[i](tokens[:, i, :])  # (B, T, D/n_cb)
             embeddings.append(emb)
-        
-        # Concatenate and project
-        combined = torch.cat(embeddings, dim=-1)  # (B, T, D)
+
+        combined = torch.cat(embeddings, dim=-1)   # (B, T, D)
         projected = self.embedding_proj(combined)  # (B, T, d_model)
-        
+
         return projected
-    
+
     def get_audio_duration(self, n_tokens: int) -> float:
-        """Calculate audio duration from number of tokens."""
+        """Calcula duração de áudio a partir do número de tokens."""
         return n_tokens / self.tokens_per_second
-    
+
     def get_n_tokens(self, duration_seconds: float) -> int:
-        """Calculate number of tokens for a given duration."""
+        """Calcula número de tokens para uma duração."""
         return int(duration_seconds * self.tokens_per_second)
 
 
 class SimplifiedTokenizer(nn.Module):
     """
-    Fallback tokenizer when EnCodec is not available.
-    Uses mel-spectrogram + learned codebook (less quality than EnCodec).
+    Tokenizador fallback quando EnCodec não está disponível.
+    Usa mel-spectrogram + codebook aprendido (menor qualidade).
     """
-    
+
     def __init__(
         self,
         sample_rate: int = 24000,
@@ -216,87 +200,78 @@ class SimplifiedTokenizer(nn.Module):
         self.sample_rate = sample_rate
         self.vocab_size = vocab_size
         self.n_codebooks = n_codebooks
-        
-        # Mel-spectrogram
+
         import torchaudio.transforms as T
         self.mel = T.MelSpectrogram(
             sample_rate=sample_rate,
             n_fft=1024,
-            hop_length=320,  # ~75 tokens/sec at 24kHz
+            hop_length=320,
             n_mels=n_mels,
         )
-        
-        # Encoder
+
         self.encoder = nn.Sequential(
             nn.Conv1d(n_mels, 256, 3, padding=1),
             nn.GELU(),
             nn.Conv1d(256, d_model, 3, padding=1),
         )
-        
-        # Codebooks (simplified RVQ)
+
         self.codebooks = nn.ParameterList([
             nn.Parameter(torch.randn(vocab_size, d_model // n_codebooks))
             for _ in range(n_codebooks)
         ])
-        
+
         self.tokens_per_second = sample_rate // 320
-    
+
     def encode(self, waveform: torch.Tensor, **kwargs) -> torch.Tensor:
-        """Encode waveform to tokens."""
         if waveform.dim() == 3:
             waveform = waveform.squeeze(1)
-        
+
         mel = self.mel(waveform)
         mel = torch.log(mel.clamp(min=1e-5))
-        
-        features = self.encoder(mel)  # (B, D, T)
-        features = features.transpose(1, 2)  # (B, T, D)
-        
-        # Quantize to each codebook
+
+        features = self.encoder(mel)
+        features = features.transpose(1, 2)
+
         B, T, D = features.shape
         tokens = []
-        
+
         for i, codebook in enumerate(self.codebooks):
-            # Select feature slice for this codebook
             start = i * (D // self.n_codebooks)
             end = (i + 1) * (D // self.n_codebooks)
             feat_slice = features[:, :, start:end]
-            
-            # Find nearest codebook entry
+
             distances = torch.cdist(
                 feat_slice.reshape(-1, feat_slice.shape[-1]),
                 codebook
             )
             token_ids = distances.argmin(dim=-1).reshape(B, T)
             tokens.append(token_ids)
-        
-        return torch.stack(tokens, dim=1)  # (B, n_codebooks, T)
-    
+
+        return torch.stack(tokens, dim=1)
+
     def decode(self, tokens: torch.Tensor) -> torch.Tensor:
-        """Simplified decode (returns zeros as placeholder)."""
         warnings.warn(
-            "SimplifiedTokenizer.decode() is not fully implemented. "
-            "Use EnCodec for proper audio reconstruction."
+            "SimplifiedTokenizer.decode() não implementado. "
+            "Use EnCodec para reconstrução real."
         )
         B, n_cb, T = tokens.shape
-        # Return placeholder audio
         return torch.zeros(B, 1, T * 320)
+
+    def get_n_tokens(self, duration_seconds: float) -> int:
+        return int(duration_seconds * self.tokens_per_second)
 
 
 def get_tokenizer(use_encodec: bool = True, **kwargs) -> nn.Module:
     """
-    Factory function to get the appropriate tokenizer.
-    
+    Factory para obter o tokenizador adequado.
+
     Args:
-        use_encodec: Whether to use EnCodec (recommended)
-        **kwargs: Arguments passed to tokenizer
-        
-    Returns:
-        Tokenizer module
+        use_encodec: Usar EnCodec (recomendado)
+        **kwargs: Argumentos para o tokenizador
     """
     if use_encodec and ENCODEC_AVAILABLE:
         return EnCodecWrapper(**kwargs)
     else:
         if use_encodec:
-            warnings.warn("EnCodec not available, using simplified tokenizer.")
+            warnings.warn("EnCodec não disponível, usando tokenizador simplificado.")
         return SimplifiedTokenizer(**kwargs)
