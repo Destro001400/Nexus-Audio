@@ -8,6 +8,7 @@
 # ── Arquivos permitidos ──────────────────────────
 !.gitignore
 !README.md
+!LICENSE
 
 # ── Para permitir pastas no futuro, faça assim: ──
 # !research/

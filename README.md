@@ -16,7 +16,7 @@
     <img src="https://img.shields.io/badge/GPU-2x_Tesla_T4-blue?style=flat-square" alt="GPU">
     <img src="https://img.shields.io/badge/codec-DualCodec_12.5Hz-purple?style=flat-square" alt="Codec">
     <img src="https://img.shields.io/badge/status-S4_Training-orange?style=flat-square" alt="Status">
-    <img src="https://img.shields.io/badge/license-MIT-lightgrey?style=flat-square" alt="License">
+    <img src="https://img.shields.io/badge/license-Apache_2.0-lightgrey?style=flat-square" alt="License">
   </p>
 </p>
 
@@ -214,7 +214,9 @@ Diversidade representacional (d_state: 16/64/256) com Scale Mixer dinâmico cont
 
 ## 📜 Licença
 
-MIT License — [SnaX Company](https://snax-page.vercel.app) © 2026
+**Apache License 2.0** — Comercialização permitida, cópia permitida, modificação permitida e **proteção de patentes** garantida.
+
+[SnaX Company](https://snax-page.vercel.app) © 2026
 
 ---
 
