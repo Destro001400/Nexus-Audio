@@ -1,27 +1,16 @@
-# User files
-research/
-*.rar
+# ══════════════════════════════════════════════════
+# WHITELIST MODE: Ignora TUDO, permite só o que eu quiser
+# ══════════════════════════════════════════════════
 
-# Python
-__pycache__/
-*.py[cod]
-*$py.class
-.venv/
-env/
-venv/
-.env
+# Ignora tudo
+*
 
-# Jupyter Notebooks
-.ipynb_checkpoints
-*/.ipynb_checkpoints/*
+# ── Arquivos permitidos ──────────────────────────
+!.gitignore
+!README.md
 
-# Data & Models
-checkpoints/
-tokens/
-data/
-*.pt
-*.wav
-*.mp3
-
-# Agent files
-.agent/
+# ── Para permitir pastas no futuro, faça assim: ──
+# !research/
+# !research/**
+# !scripts/
+# !scripts/**
