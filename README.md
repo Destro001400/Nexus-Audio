@@ -15,7 +15,7 @@
     <img src="https://img.shields.io/badge/custo-$0_(Kaggle_Free)-brightgreen?style=flat-square" alt="Custo $0">
     <img src="https://img.shields.io/badge/GPU-2x_Tesla_T4-blue?style=flat-square" alt="GPU">
     <img src="https://img.shields.io/badge/codec-DualCodec_12.5Hz-purple?style=flat-square" alt="Codec">
-    <img src="https://img.shields.io/badge/status-Beta--3_Training-orange?style=flat-square" alt="Status">
+    <img src="https://img.shields.io/badge/status-S4_Training-orange?style=flat-square" alt="Status">
     <img src="https://img.shields.io/badge/license-MIT-lightgrey?style=flat-square" alt="License">
   </p>
 </p>
@@ -88,7 +88,7 @@ Substituição do vocabulário de texto do **Qwen3.5-2B** pelo vocabulário de �
 | **Vocab** | 20,480 tokens de áudio (16K semântico + 4K×7 acústico) |
 | **Precisão** | FP16 |
 | **Hardware** | 2× Tesla T4 (16 GB cada) |
-| **Status** | 🔄 Em treinamento (S1-REAL) |
+| **Status** | 🔄 Em treinamento (S4 - fix) |
 
 **Bug crítico resolvido:** A biblioteca PEFT/LoRA **não** salva embeddings customizados. Embeddings devem ser persistidos separadamente (`custom_embeddings.pt`) antes do checkpoint LoRA.
 
@@ -116,25 +116,6 @@ Substituição do vocabulário de texto do **Qwen3.5-2B** pelo vocabulário de �
 | **NexMOSHA Beta-3** | **~2B** | **$0** | DualCodec 12.5Hz |
 
 ---
-
-## 📁 Estrutura do Projeto
-
-```
-Nexus-Audio/
-├── notebooks/                  # Notebooks Kaggle
-│   ├── train-beta-3-final.ipynb   # Treino Beta-3 (Qwen + LoRA)
-│   └── nex-generate-beta-3.ipynb  # Geração com Dual-GPU
-├── nexmosha-code-beta-1/       # Código fonte Beta-1 (SiMBA)
-├── nexmosha-code-beta-2/       # Código fonte Beta-2 (NexMOSHA)
-├── research/                   # Pesquisa e paper
-│   ├── paper_en.tex               # Paper arXiv (inglês)
-│   ├── paper_pt.tex               # Paper arXiv (português)
-│   └── nexus_paper_tecnico.md     # Documentação técnica completa
-├── scripts/                    # Ferramentas CLI
-│   └── kaggle_cli.py              # CLI interativo para Kaggle
-├── memory/                     # Contexto do agente
-└── logs/                       # Logs de treinamento
-```
 
 ---
 
@@ -182,7 +163,7 @@ O paper científico está disponível em duas versões:
 - 🇺🇸 [`research/paper_en.tex`](research/paper_en.tex) — Inglês (para arXiv)
 - 🇧🇷 [`research/paper_pt.tex`](research/paper_pt.tex) — Português
 
-**Status:** Preprint em preparação. Aguardando resultados da S1-REAL (Beta-3 com fix de embeddings) para completar a seção de resultados.
+**Status:** Preprint em preparação. Aguardando resultados da S4 (Beta-3 com fix de embeddings) para completar a seção de resultados.
 
 ### Citar
 
@@ -223,7 +204,7 @@ Diversidade representacional (d_state: 16/64/256) com Scale Mixer dinâmico cont
 - [x] Beta-3: Setup Qwen3.5-2B + LoRA + DualCodec
 - [x] Fix: Persistência de embeddings customizados
 - [x] Paper: Estrutura LaTeX (EN + PT)
-- [ ] 🔄 Beta-3 S1-REAL: Treino com fix de embeddings
+- [ ] 🔄 Beta-3 S4: Treino com fix de embeddings (S4)
 - [ ] Avaliação: Métricas perceptuais (CLAP, FAD)
 - [ ] Avaliação: Testes de escuta humana (MOS)
 - [ ] Publicação: Submissão ao arXiv
