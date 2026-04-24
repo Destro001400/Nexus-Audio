@@ -1,17 +1,13 @@
-# ══════════════════════════════════════════════════
-# WHITELIST MODE: Ignora TUDO, permite só o que eu quiser
-# ══════════════════════════════════════════════════
 
 # Ignora tudo
 *
 
 # ── Arquivos permitidos ──────────────────────────
-#!.gitignore
+!.gitignore
 !README.md
 !LICENSE
+# ── Pastas permitidas ─────────────────────────────
+!free/
+!free/nexus_paper_tecnico.md
+!free/Beta3_Post_Mortem.md
 
-# ── Para permitir pastas no futuro, faça assim: ──
-# !research/
-# !research/**
-# !scripts/
-# !scripts/**
