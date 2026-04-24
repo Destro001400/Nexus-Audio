@@ -6,7 +6,7 @@
 *
 
 # ── Arquivos permitidos ──────────────────────────
-!.gitignore
+#!.gitignore
 !README.md
 !LICENSE
 
