@@ -7,9 +7,9 @@
 
 A Beta-3 foi uma abordagem de **fine-tuning de LLM pré-treinado** (Qwen3.5-2B/4B) para geração de tokens de áudio DualCodec. A ideia central era aproveitar a capacidade de "next-token prediction" de um modelo de linguagem já treinado e ensiná-lo a "falar" na linguagem dos tokens DualCodec, em vez de treinar um modelo do zero.
 
-**Resultado:** A abordagem produziu avanços técnicos valiosos e atingiu a menor val_loss da história do projeto (4.9697 na S9), mas foi encerrada por decisão estratégica — o overhead de hacks, incompatibilidades de ambiente e complexidade operacional superou os benefícios em relação ao modelo próprio (NexMOSHA Beta-2).
+**Resultado:** A abordagem produziu avanços técnicos valiosos e atingiu a menor val_loss da história do projeto (4.9697 na S9), mas foi encerrada por duas decisões estratégicas — 1) o overhead de hacks superou os benefícios; 2) o DualCodec provou-se inadequado para música (usa W2V-BERT, focado em fala).
 
-**Decisão final:** Retorno à Beta-2 (NexMOSHA, arquitetura própria SSM+MHA, 77M params).
+**Decisão final:** Pivot para a **Beta-4 (NexMOSHA v2.5)**: abandono do DualCodec, retorno ao EnCodec 24kHz e transição para arquitetura híbrida O(L) construída do zero (MS-SSM + Kimi Delta Attention).
 
 ---
 
@@ -199,7 +199,7 @@ dataloader_pin_memory = False
 
 **Resultado:** Val Loss caiu de 6.27 (S7, Kaggle) → 4.9697 (S9, Lightning). **Redução de 21%.**
 
-> ⚠️ **ESTA TÉCNICA É VÁLIDA PARA QUALQUER MODELO COM CODEBOOKS HIERÁRQUICOS** — não é exclusiva de LLMs fine-tunados. Deve ser testada na Beta-2 (NexMOSHA).
+> ⚠️ **ESTA TÉCNICA É VÁLIDA PARA QUALQUER MODELO COM CODEBOOKS HIERÁRQUICOS** — não é exclusiva de LLMs fine-tunados. Deve ser testada na Beta-4 (NexMOSHA v2.5).
 
 ---
 
@@ -248,7 +248,7 @@ A migração do Kaggle (2×T4 16GB = 32GB) para Lightning AI (1×RTXP 6000 96GB)
 - Bugs dia-zero: PEFT não reconhece `Gemma4ClippableLinear`, `mm_token_type_ids` exigido mesmo em texto-only
 - **Ainda precisaria do mesmo hack de substituição de embeddings**
 
-**Status:** Aguardando estabilização. Pode ser irrelevante se a Beta-2 progredir bem.
+**Status:** Aguardando estabilização. Pode ser irrelevante já que o projeto pivotou de vez para a Beta-4 com arquitetura própria.
 
 ---
 
@@ -271,7 +271,7 @@ A migração do Kaggle (2×T4 16GB = 32GB) para Lightning AI (1×RTXP 6000 96GB)
 # Modelo 4B (Kaggle dataset)
 abebe9849/qwen35-4b
 
-# Dataset DualCodec (compartilhado com Beta-2)
+# Dataset DualCodec (descartado após Beta-3)
 /kaggle/input/datasets/destro01400/nexus-audio-dataset-beta-2/tokens
 /kaggle/input/datasets/snaxcompany/nexus-dataset-complementar-1/tokens
 
@@ -284,20 +284,20 @@ abebe9849/qwen35-4b
 
 ---
 
-## 9. O QUE LEVAR PARA A BETA-2 (LIÇÕES TRANSFERÍVEIS)
+## 9. O QUE LEVAR PARA A BETA-4 (LIÇÕES TRANSFERÍVEIS)
 
-### ✅ Aplicar na Beta-2:
-1. **Curriculum Learning Faseado** — A técnica funciona com QUALQUER modelo que usa codebooks hierárquicos. Implementar no `SiMBATherapeutic.forward()` com pesos dinâmicos por fase
+### ✅ Aplicar na Beta-4:
+1. **Curriculum Learning Faseado** — A técnica funciona com QUALQUER modelo que usa codebooks (ex: RVQ do EnCodec). Implementar no treino da Beta-4 com pesos dinâmicos.
 2. **Cosine scheduler (sem restarts)** — Usar `cosine` padrão com warmup e LR decrescente
 3. **Batch efetivo maior** — Se usar Lightning AI, aproveitar batch=32 em vez de batch=4
 4. **BFloat16** — Usar bfloat16 nativo em vez de fp16 + GradScaler (se hardware suportar)
 5. **Avaliação por codebook separada** — Monitorar loss de cada CB individualmente para diagnosticar gargalos
 
-### ❌ NÃO se aplica à Beta-2:
-1. Hacks de DataParallel/Autocast (modelo próprio não usa PEFT)
+### ❌ NÃO se aplica à Beta-4:
+1. Hacks de DataParallel/Autocast (Beta-4 não usa PEFT)
 2. Class-level monkey-patching (não há subclasses dinâmicas)
-3. Troca de vocab/embeddings (Beta-2 tem vocabulário nativo)
-4. Mocks de importação Kaggle (problema do HuggingFace Transformers, não do PyTorch puro)
+3. Troca de vocab/embeddings (Beta-4 tem vocabulário nativo de 1024 do EnCodec)
+4. Mocks de importação Kaggle (problema resolvido treinando do zero em PyTorch puro)
 
 ---
 
@@ -314,14 +314,14 @@ Isso valida que o fine-tuning FUNCIONOU — o modelo aprendeu a gerar tokens Dua
 
 ## 11. CONCLUSÃO
 
-A Beta-3 foi um experimento bem-sucedido em termos de aprendizado técnico, gerando inovações que serão diretamente aplicadas na Beta-2. As principais contribuições são:
+A Beta-3 foi um experimento bem-sucedido em termos de aprendizado técnico, gerando inovações e a descoberta da falha fundamental do DualCodec para música. As principais contribuições transferidas para a Beta-4 são:
 
 1. **Curriculum Learning Faseado** — A técnica mais valiosa, transferível diretamente
 2. **Diagnóstico profundo de DataParallel + FP16** — Documentação que serve para qualquer projeto multi-GPU
 3. **Validação empírica de fine-tuning de LLM para áudio** — Provou que é possível, mas opera em faixa de complexidade desnecessária quando se tem arquitetura própria
 4. **Benchmark de Lightning AI** — Dados de escalabilidade para futura migração de hardware
 
-**A Beta-3 fecha com honras. O conhecimento gerado aquí não morre — ele renasce na Beta-2.** 🏆
+**A Beta-3 fecha com honras. O conhecimento gerado aqui não morre — ele evoluiu diretamente para a criação da Beta-4.** 🏆
 
 ---
 

@@ -1,5 +1,3 @@
-
-# Ignora tudo
 *
 
 # ── Arquivos permitidos ──────────────────────────
@@ -8,6 +6,5 @@
 !LICENSE
 # ── Pastas permitidas ─────────────────────────────
 !free/
-!free/nexus_paper_tecnico.md
-!free/Beta3_Post_Mortem.md
+!free/*
 
