@@ -64,13 +64,13 @@ EnCodec               DualCodec             DualCodec            EnCodec
 ### Fase 4: Beta-4 (ATUAL 🚀)
 > *O Estado da Arte — Eficiência O(L) com Memória Infinita*
 
-Retorno à arquitetura custom com duas inovações fundamentais: **Kimi Delta Attention** (atenção linear O(L) com Delta Rule) e **proporção 3:1** (3 camadas locais MS-SSM para cada 1 camada global KDA).
+Retorno à arquitetura custom com três inovações fundamentais: **Kimi Delta Attention** (atenção linear O(L)), **Proporção 3:1** (MS-SSM local vs KDA global) e a adoção da nova arquitetura **Mamba-3** (Estados Complexos e MIMO).
 
 | Componente | Detalhe |
 |---|---|
 | **Arquitetura** | Híbrida 3:1 (MS-SSM local + KDA global) |
 | **Atenção** | KDA — Delta Rule, O(L), 8 cabeças |
-| **SSM** | Mamba-2 multi-escala (32, 64, 128) |
+| **SSM** | Mamba-3 multi-escala (Estados complexos, MIMO, reduzido d_state=64) |
 | **Escalonamento** | 4 Presets: *Tiny* (116M) → *Large* (1.3B) |
 | **Contexto** | Janela deslizante de 30s (2250 tokens) com 50% overlap |
 | **Codec** | EnCodec 24kHz @ 6kbps (vocab=1024, 8 codebooks RVQ) |
@@ -162,7 +162,8 @@ Descobertas que podem ajudar outros pesquisadores:
 2. **⚡ Atenção O(L) é obrigatória para áudio** — 2250 tokens = 30s. Atenção quadrática explode VRAM. A Delta Rule do KDA mantém contexto infinito em O(L).
 3. **🎵 Pule codecs de fala para música** — DualCodec (W2V-BERT 2.0) captura fonemas, não harmonia. EnCodec base é a melhor escolha para áudio musical.
 4. **🐛 Causal mask do PyTorch é uma armadilha** — `nn.MultiheadAttention` não aplica mask causal por padrão, mesmo com `is_causal=True`. Sempre passe a máscara explicitamente.
-5. **💾 Embeddings ≠ LoRA** — PEFT não salva embeddings customizados. Salve separadamente ou perca 3 sessões de treino.
+6. **🚀 Mamba-3 é obrigatório para Inferência Autorregressiva** — A migração de Mamba-2 para Mamba-3 nos permitiu cortar o consumo de VRAM pela metade (`d_state=64` em vez de 128 mantendo a mesma qualidade) e saturar a GPU usando a arquitetura MIMO, ideal para instâncias L4.
+7. **⚠️ Fuja da Ponte PyTorch-JAX em TPUs** — Testes no Kaggle mostraram que o `torch_xla` 2.9.0 com custom kernels (`call_jax`) tem bugs severos de truncamento de memória em bfloat16. GPUs NVIDIA + Triton nativo são o único caminho estável.
 
 ---
 
